@@ -1,13 +1,14 @@
-name: Pull request checks
+name: Offline validation
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  group: validate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,6 +19,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -28,11 +31,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
 
       - name: Compile Python sources
-        run: python -m compileall -q src tests data.py helpers.py
+        run: .venv/bin/python -m compileall -q src tests data.py helpers.py
 
       - name: Collect tests without integration requests
-        run: python -B -m pytest --collect-only -q -p no:cacheprovider
+        env:
+          STELLAR_BURGERS_BASE_URL: https://api.example.invalid
+        # Collection imports modules but must never execute API requests.
+        # The empty network namespace also blocks accidental import-time I/O.
+        run: sudo -n unshare --net -- .venv/bin/python -B -m pytest --collect-only -q -p no:cacheprovider
